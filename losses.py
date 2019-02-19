@@ -91,7 +91,38 @@ class TripletLoss_Mixup_single(nn.Module):
         #loss2 = F.relu(pratio*distance_mixup - distance_mixup + self.margin)
         #losses = loss1 + loss2
         return losses.mean() if size_average else losses.sum()
-    
+
+
+class TripletLoss_Mixup_single_adaptive(nn.Module):
+    """
+    Triplet loss with mixup samples
+    Takes embeddings of an anchor sample, a positive sample, negative sample, and a mixup sample
+    """
+
+    def __init__(self, margin, alpha):
+        super(TripletLoss_Mixup_single_adaptive, self).__init__()
+        self.margin = margin
+        self.alpha = alpha
+
+    def forward(self, anchor, positive, negative, size_average=True):
+        mixup, pratio = mixup_data(positive, negative, self.alpha, use_cuda=True)
+
+
+        distance_positive = (anchor - positive).pow(2).sum(1)  # .pow(.5)
+        distance_negative = (anchor - negative).pow(2).sum(1)  # .pow(.5)
+        distance_mixup = (anchor - mixup).pow(2).sum(1)  # .pow(.5)
+
+        if pratio < 0.5:
+            losses = F.relu(distance_positive - (1-pratio)*distance_mixup + self.margin*(1-pratio))
+        else:
+            losses = F.relu(pratio*distance_mixup - distance_mixup + self.margin*(pratio))
+
+        #losses = F.relu(distance_positive - distance_negative + self.margin)
+        #loss1 = F.relu(distance_positive - (1-pratio)*distance_mixup + self.margin)
+        #loss2 = F.relu(pratio*distance_mixup - distance_mixup + self.margin)
+        #losses = loss1 + loss2
+        return losses.mean() if size_average else losses.sum() 
+
 class OnlineContrastiveLoss(nn.Module):
     """
     Online Contrastive loss
