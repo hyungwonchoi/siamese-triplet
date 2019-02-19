@@ -135,12 +135,13 @@ def fit(clsonly, writer, args, train_loader, val_loader, model, loss_fn, optimiz
         writer.add_scalar('data/test_loss', val_loss, epoch)
         
         if args.save_embedding == True:
-            if val_loader_cls is not None:
-                val_embeddings_baseline, val_labels_baseline = extract_embeddings(val_loader_cls, model, args.nfeat)
-            else:
-                val_embeddings_baseline, val_labels_baseline = extract_embeddings(val_loader, model, args.nfeat)
-            writer.add_embedding(val_embeddings_baseline, metadata=val_labels_baseline, global_step=epoch)
-            
+            if epoch == n_epochs-1:
+                if val_loader_cls is not None:
+                    val_embeddings_baseline, val_labels_baseline = extract_embeddings(val_loader_cls, model, args.nfeat)
+                else:
+                    val_embeddings_baseline, val_labels_baseline = extract_embeddings(val_loader, model, args.nfeat)
+                writer.add_embedding(val_embeddings_baseline, metadata=val_labels_baseline, global_step=epoch)
+
             if val_loader_emb is not None:
                 # compute embedding performance 
                 em_acc = embedding_acc(val_loader_emb, model, args.nfeat)
