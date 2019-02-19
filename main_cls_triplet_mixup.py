@@ -179,7 +179,8 @@ if args.cls > 0:
     if cuda:
         model_cls.cuda()
     args.save_embedding = False
-    fit(True, writer, args, train_loader, test_loader, model_cls, loss_fn, optimizer, scheduler, args.epoch, cuda, args.log_interval, metrics=[AccumulatedAccuracyMetric()])
+    fit(True, writer, args, train_loader, test_loader, model_cls, loss_fn, optimizer, scheduler, args.epoch, cuda, args.log_interval, metrics=[AccumulatedAccuracyMetric()], use_mixup=True)
+
     writer.close()
 
 """
@@ -204,4 +205,4 @@ fit(writer, args, train_loader, test_loader, model, loss_fn, optimizer, schedule
 """
 
 #writer.add_embedding(val_embeddings_baseline, metadata=val_labels_baseline, global_step=1)
-writer.close()
+#writer.close()
