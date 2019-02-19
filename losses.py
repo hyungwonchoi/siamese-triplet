@@ -113,9 +113,9 @@ class TripletLoss_Mixup_single_adaptive(nn.Module):
         distance_mixup = (anchor - mixup).pow(2).sum(1)  # .pow(.5)
 
         if pratio < 0.5:
-            losses = F.relu(distance_positive - (1-pratio)*distance_mixup + self.margin*(1-pratio))
+            losses = F.relu(distance_positive - distance_mixup + self.margin*(1-pratio))
         else:
-            losses = F.relu(pratio*distance_mixup - distance_mixup + self.margin*(pratio))
+            losses = F.relu(distance_mixup - distance_mixup + self.margin*(pratio))
 
         #losses = F.relu(distance_positive - distance_negative + self.margin)
         #loss1 = F.relu(distance_positive - (1-pratio)*distance_mixup + self.margin)
