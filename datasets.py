@@ -4,6 +4,50 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import BatchSampler
 
+import torch.utils.data as data
+from PIL import Image
+
+import os
+import os.path
+
+def has_file_allowed_extension(filename, extensions):
+    """Checks if a file is an allowed extension.
+
+    Args:
+        filename (string): path to a file
+
+    Returns:
+        bool: True if the filename ends with a known image extension
+    """
+    filename_lower = filename.lower()
+    return any(filename_lower.endswith(ext) for ext in extensions)
+
+
+def find_classes(dir):
+    classes = [d for d in os.listdir(dir) if os.path.isdir(os.path.join(dir, d))]
+    classes.sort()
+    class_to_idx = {classes[i]: i for i in range(len(classes))}
+    return classes, class_to_idx
+
+
+def make_dataset(dir, class_to_idx, extensions):
+    images = []
+    dir = os.path.expanduser(dir)
+    for target in sorted(os.listdir(dir)):
+        d = os.path.join(dir, target)
+        if not os.path.isdir(d):
+            continue
+
+        for root, _, fnames in sorted(os.walk(d)):
+            for fname in sorted(fnames):
+                if has_file_allowed_extension(fname, extensions):
+                    path = os.path.join(root, fname)
+                    item = (path, class_to_idx[target])
+                    images.append(item)
+
+    return images
+
+
 
 class SiameseMNIST(Dataset):
     """
@@ -203,6 +247,122 @@ class TripletCIFAR10(Dataset):
         img1 = Image.fromarray(img1, mode='RGB')
         img2 = Image.fromarray(img2, mode='RGB')
         img3 = Image.fromarray(img3, mode='RGB')
+        if self.transform is not None:
+            img1 = self.transform(img1)
+            img2 = self.transform(img2)
+            img3 = self.transform(img3)
+        return (img1, img2, img3), []
+
+    def __len__(self):
+        return len(self.mnist_dataset)
+    
+    
+    
+def pil_loader(path):
+    # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
+    with open(path, 'rb') as f:
+        img = Image.open(f)
+        return img.convert('RGB')
+
+
+def accimage_loader(path):
+    import accimage
+    try:
+        return accimage.Image(path)
+    except IOError:
+        # Potentially a decoding problem, fall back to PIL.Image
+        return pil_loader(path)
+
+
+def default_loader(path):
+    from torchvision import get_image_backend
+    if get_image_backend() == 'accimage':
+        return accimage_loader(path)
+    else:
+        return pil_loader(path)
+
+    
+class TripletOmnious(Dataset):
+    """
+    Train: For each sample (anchor) randomly chooses a positive and negative samples
+    Test: Creates fixed triplets for testing
+    """
+
+    def __init__(self, mnist_dataset, labels, loader=default_loader, istrain=True):
+        
+        self.mnist_dataset = mnist_dataset
+        self.train = istrain
+        self.transform = self.mnist_dataset.transform
+        self.loader = loader
+
+        if self.train:
+            self.train_labels = labels
+            self.train_data = self.mnist_dataset.samples
+            self.labels_set = set(np.asarray(self.train_labels))
+            self.label_to_indices = {label: np.where(np.asarray(self.train_labels) == label)[0]
+                                     for label in self.labels_set}
+
+        else:
+            self.test_labels = labels
+            self.test_data = self.mnist_dataset.samples
+            # generate fixed triplets for testing
+            self.labels_set = set(np.asarray(self.test_labels))
+            self.label_to_indices = {label: np.where(np.asarray(self.test_labels) == label)[0]
+                                     for label in self.labels_set}
+
+            random_state = np.random.RandomState(29)
+
+            triplets = [[i,
+                         random_state.choice(self.label_to_indices[self.test_labels[i]]),
+                         random_state.choice(self.label_to_indices[
+                                                 np.random.choice(
+                                                     list(self.labels_set - set([self.test_labels[i]]))
+                                                 )
+                                             ])
+                         ]
+                        for i in range(len(self.test_data))]
+            self.test_triplets = triplets
+
+    def __getitem__(self, index):
+        #path, target = self.train_data[index]
+        #sample = self.loader(path)
+        #if self.transform is not None:
+        #    sample = self.transform(sample)
+        #if self.target_transform is not None:
+        #    target = self.target_transform(target)
+        
+        if self.train:
+            path1, label1 = self.train_data[index]
+            
+            #img1, label1 = self.train_data[index], self.train_labels[index]
+            positive_index = index
+            while positive_index == index:
+                positive_index = np.random.choice(self.label_to_indices[label1])
+            negative_label = np.random.choice(list(self.labels_set - set([label1])))
+            negative_index = np.random.choice(self.label_to_indices[negative_label])
+            
+            path2, _ = self.train_data[positive_index]
+            path3, _ = self.train_data[negative_index]
+            #img2 = self.train_data[positive_index]
+            #img3 = self.train_data[negative_index]
+        else:
+            path1, _ = self.test_data[self.test_triplets[index][0]]
+            path2, _ = self.test_data[self.test_triplets[index][1]]
+            path3, _ = self.test_data[self.test_triplets[index][2]]
+            #img1 = self.test_data[self.test_triplets[index][0]]
+            #img2 = self.test_data[self.test_triplets[index][1]]
+            #img3 = self.test_data[self.test_triplets[index][2]]
+
+        #img1 = Image.fromarray(img1.numpy(), mode='L')
+        #img2 = Image.fromarray(img2.numpy(), mode='L')
+        #img3 = Image.fromarray(img3.numpy(), mode='L')
+        img1 = self.loader(path1)
+        img2 = self.loader(path1)
+        img3 = self.loader(path1)
+        
+        #img1 = Image.fromarray(img1, mode='RGB')
+        #img2 = Image.fromarray(img2, mode='RGB')
+        #img3 = Image.fromarray(img3, mode='RGB')
         if self.transform is not None:
             img1 = self.transform(img1)
             img2 = self.transform(img2)
