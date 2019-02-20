@@ -17,7 +17,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 import torchvision
-from datasets import TripletMNIST
+from datasets import TripletMNIST, TripletCIFAR10
 from torchvision.datasets import MNIST
 from torchvision.datasets import FashionMNIST
 import torchvision.transforms as transforms
@@ -34,6 +34,7 @@ parser = argparse.ArgumentParser(description='PyTorch Triplet network for classi
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--seed', default=0, type=int, help='rng seed')
 parser.add_argument('--batch_size', default=256, type=int, help='batchSize')
+parser.add_argument('--nchannel', default=1, type=int, help='number of channel of data')
 parser.add_argument('--nfeat', default=2, type=int, help='number of feature')
 parser.add_argument('--dataset', default='fashionMnist', help='dataset')
 parser.add_argument('--decay', default=1e-4, type=float, help='weight decay (default=1e-4)')
@@ -51,7 +52,7 @@ args = parser.parse_args()
 torch.manual_seed(args.seed)
 
 if args.margin > 0:
-    writer = SummaryWriter("./visual/{}/nfeat_{}_triplet_{}_margin_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.margin, args.ntry))
+    writer = SummaryWriter("./visual/{}/nfeat_{}_triplet_{}_margin_{}_lr_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.margin, args.lr, args.ntry))
 else:
     writer = SummaryWriter("./visual/{}/nfeat_{}_triplet_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.ntry))
 
@@ -85,10 +86,13 @@ def extract_embeddings(dataloader, model):
 mnist_classes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 fashion_mnist_classes = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
                          'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+cifar10_classes = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
               '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
               '#bcbd22', '#17becf']
 
+cuda = torch.cuda.is_available()
 
 if args.dataset =='Mnist':
     print('Using MNIST')
@@ -104,7 +108,6 @@ if args.dataset =='Mnist':
                                     transforms.ToTensor(),
                                     transforms.Normalize((mean,), (std,))
                                 ]))
-    cuda = torch.cuda.is_available()
     
     # Set up data loaders
     kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
@@ -128,7 +131,7 @@ elif args.dataset =='fashionMnist':
                                     transforms.Normalize((mean,), (std,))
                                 ]))
 
-    cuda = torch.cuda.is_available()
+    
     
     # Set up data loaders
     kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
@@ -138,22 +141,48 @@ elif args.dataset =='fashionMnist':
     n_classes = 10
     mnist_classes = fashion_mnist_classes    
        
+elif args.dataset =='cifar10':
+    print('==> Preparing Cifar10 data..')
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
 
-        
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+
+    train_dataset = torchvision.datasets.CIFAR10(root='../data/cifar10', train=True, download=True, transform=transform_train)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
+
+    test_dataset = torchvision.datasets.CIFAR10(root='../data/cifar10', train=False, download=True, transform=transform_test)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
+    
+    n_classes = 10
+    mnist_classes = cifar10_classes    
+    
+    
+
 # Load triplet dataset
-triplet_train_dataset = TripletMNIST(train_dataset) # Returns triplets of images
-triplet_test_dataset = TripletMNIST(test_dataset)
-batch_size = 128
+triplet_train_dataset = TripletCIFAR10(train_dataset) # Returns triplets of images
+triplet_test_dataset = TripletCIFAR10(test_dataset)
+#triplet_train_dataset = TripletMNIST(train_dataset) # Returns triplets of images
+#triplet_test_dataset = TripletMNIST(test_dataset)
+batch_size = args.batch_size
 kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
 triplet_train_loader = torch.utils.data.DataLoader(triplet_train_dataset, batch_size=batch_size, shuffle=True, **kwargs)
 triplet_test_loader = torch.utils.data.DataLoader(triplet_test_dataset, batch_size=batch_size, shuffle=False, **kwargs)
+
 
 # Set up the network and training parameters
 from networks import EmbeddingNet, TripletNet, ClassificationNet
 from losses import TripletLoss
 from metrics import AccumulatedAccuracyMetric
 
-embedding_net = EmbeddingNet(args.nfeat)
+embedding_net = EmbeddingNet(args.nfeat, args.nchannel)
 model = TripletNet(embedding_net)
 if cuda:
     model.cuda()
@@ -161,17 +190,17 @@ if cuda:
 triplet_loss_fn = TripletLoss(args.margin)
 
 optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = lr_scheduler.StepLR(optimizer, 8, gamma=0.1, last_epoch=-1)
+scheduler = lr_scheduler.StepLR(optimizer, 20, gamma=0.1, last_epoch=-1)
 
 fit(False, writer, args, triplet_train_loader, triplet_test_loader, model, triplet_loss_fn, optimizer, scheduler, args.epoch, cuda, args.log_interval, val_loader_cls=test_loader, val_loader_emb=triplet_test_loader)
 writer.close()
 
 if args.cls > 0:
-    writer = SummaryWriter("./visual/{}/nfeat_{}_triplet_{}_margin_{}_ntry{}/cls".format(args.dataset, args.nfeat, args.triplet, args.margin, args.ntry))
+    writer = SummaryWriter("./visual/{}/nfeat_{}_triplet_{}_margin_{}_lr_{}_ntry{}/cls".format(args.dataset, args.nfeat, args.triplet, args.margin, args.lr, args.ntry))
     embedding_net.eval()
     loss_fn = torch.nn.NLLLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = lr_scheduler.StepLR(optimizer, 8, gamma=0.1, last_epoch=-1)
+    scheduler = lr_scheduler.StepLR(optimizer, 20, gamma=0.1, last_epoch=-1)
     
     model_cls = ClassificationNet(embedding_net, n_classes=n_classes, nfeat=args.nfeat)
     if cuda:
@@ -180,26 +209,3 @@ if args.cls > 0:
     fit(True, writer, args, train_loader, test_loader, model_cls, loss_fn, optimizer, scheduler, args.epoch, cuda, args.log_interval, metrics=[AccumulatedAccuracyMetric()])
     writer.close()
 
-"""
-# Set up the network and training parameters
-from networks import EmbeddingNet, ClassificationNet
-from metrics import AccumulatedAccuracyMetric
-
-embedding_net = EmbeddingNet(args.nfeat)
-model = ClassificationNet(embedding_net, n_classes=n_classes, nfeat=args.nfeat)
-if cuda:
-    model.cuda()
-loss_fn = torch.nn.NLLLoss()
-optimizer = optim.Adam(model.parameters(), lr=args.lr)
-scheduler = lr_scheduler.StepLR(optimizer, 8, gamma=0.1, last_epoch=-1)
-
-fit(writer, args, train_loader, test_loader, model, loss_fn, optimizer, scheduler, args.epoch, cuda, args.log_interval, metrics=[AccumulatedAccuracyMetric()])
-
-#train_embeddings_baseline, train_labels_baseline = extract_embeddings(train_loader, model)
-#plot_embeddings(train_embeddings_baseline, train_labels_baseline)
-#val_embeddings_baseline, val_labels_baseline = extract_embeddings(test_loader, model)
-#plot_embeddings(val_embeddings_baseline, val_labels_baseline)
-"""
-
-#writer.add_embedding(val_embeddings_baseline, metadata=val_labels_baseline, global_step=1)
-writer.close()
