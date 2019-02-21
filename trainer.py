@@ -86,7 +86,7 @@ def save_checkpoint(state, is_best, model_name, filename='checkpoint.pth.tar', i
 
    
 def fit(clsonly, writer, args, train_loader, val_loader, model, loss_fn, optimizer, scheduler, n_epochs, cuda, log_interval, metrics=[],
-        start_epoch=0, val_loader_cls=None, val_loader_emb=None, use_mixup=False, adaptive_margin=False):
+        start_epoch=0, val_loader_cls=None, val_loader_emb=None, use_mixup=False, adaptive_margin=False, normsoft=False):
     """
     Loaders, model, loss function and metrics should work together for a given task,
     i.e. The model should be able to process data output of loaders,
@@ -107,7 +107,10 @@ def fit(clsonly, writer, args, train_loader, val_loader, model, loss_fn, optimiz
         else:
             model_name = "{}/{}/nfeat_{}_triplet_{}_margin_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.margin, args.ntry)
     else:
-        model_name = "{}/{}/nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.lr, args.ntry)
+        if normsoft == True:
+            model_name = "{}/{}/normsoft_nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.lr, args.ntry)
+        else:
+            model_name = "{}/{}/nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.lr, args.ntry)
     
     for epoch in range(0, start_epoch):
         scheduler.step()

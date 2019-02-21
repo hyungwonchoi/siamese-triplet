@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python3 main_cls_normsoftmax.py --dataset omni --type "detail" --dataroot "/data/shared/export_detail_181016/output/images" --nchannel 3 --epoch 10 --lr 0.001 --triplet 0.0  --nfeat 128 --ntry 1

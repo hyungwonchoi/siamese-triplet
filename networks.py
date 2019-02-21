@@ -2,6 +2,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from models.resnet import *
 
+class LayerNorm(nn.Module):
+
+    def __init__(self, features, eps=1e-6):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(features))
+        self.beta = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+    
 class EmbeddingNet_ResNet(nn.Module):
     def __init__(self, numfeat=128, nchannel=3):
         super(EmbeddingNet_ResNet, self).__init__()
@@ -88,6 +101,39 @@ class ClassificationNet(nn.Module):
         return self.nonlinear(self.embedding_net(x))
 
 
+
+class ClassificationNet_normsoftmax(nn.Module):
+    def __init__(self, embedding_net, n_classes, nfeat, temp=0.05):
+        super(ClassificationNet_normsoftmax, self).__init__()
+        self.temp = temp
+        self.embedding_net = embedding_net
+        self.n_classes = n_classes
+        self.nonlinear = nn.PReLU()
+        self.fc1 = nn.Linear(nfeat, n_classes, bias=False)
+
+    def forward(self, x):
+        output = self.embedding_net(x)
+        output = self.nonlinear(output)
+        
+        # Layer norm
+        lnorm = nn.LayerNorm(output.size()[1:], elementwise_affine=False)
+        output = lnorm(output)
+        
+        # L2 normalize input before softmax
+        output = F.normalize(output, p=2, dim=1)
+        
+        # L2 normalize weights of linear layer
+        self.fc1.weights = F.normalize(self.fc1.weight, p=2)
+        
+        # forward linear
+        output = self.fc1(output)
+        
+        scores = F.log_softmax(output/self.temp, dim=-1)
+        return scores
+
+    def get_embedding(self, x):
+        return self.nonlinear(self.embedding_net(x))
+    
 class SiameseNet(nn.Module):
     def __init__(self, embedding_net):
         super(SiameseNet, self).__init__()
