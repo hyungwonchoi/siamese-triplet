@@ -357,8 +357,8 @@ class TripletOmnious(Dataset):
         #img2 = Image.fromarray(img2.numpy(), mode='L')
         #img3 = Image.fromarray(img3.numpy(), mode='L')
         img1 = self.loader(path1)
-        img2 = self.loader(path1)
-        img3 = self.loader(path1)
+        img2 = self.loader(path2)
+        img3 = self.loader(path3)
         
         #img1 = Image.fromarray(img1, mode='RGB')
         #img2 = Image.fromarray(img2, mode='RGB')

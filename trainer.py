@@ -71,7 +71,7 @@ def embedding_acc(dataloader, model, nfeat):
     print('Test set: Average Embedding Accuracy: {:.2f}%\n'.format(100. * accs.avg))            
     return accs.avg
 
-def save_checkpoint(state, is_best, model_name, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, model_name, filename='checkpoint.pth.tar', iscls=True):
     """Saves checkpoint to disk"""
     directory = "runs/%s/"%(model_name)
     if not os.path.exists(directory):
@@ -79,8 +79,10 @@ def save_checkpoint(state, is_best, model_name, filename='checkpoint.pth.tar'):
     filename = directory + filename
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'runs/%s/'%(model_name) + 'model_best.pth.tar')
-        
+        if iscls:
+            shutil.copyfile(filename, 'runs/%s/'%(model_name) + 'model_cls_best.pth.tar')
+        else:
+            shutil.copyfile(filename, 'runs/%s/'%(model_name) + 'model_emb_best.pth.tar')
 
    
 def fit(clsonly, writer, args, train_loader, val_loader, model, loss_fn, optimizer, scheduler, n_epochs, cuda, log_interval, metrics=[],
@@ -103,9 +105,9 @@ def fit(clsonly, writer, args, train_loader, val_loader, model, loss_fn, optimiz
             if adaptive_margin:
                 model_name = "mixup/{}/nfeat_{}_triplet_{}_adaptive_margin_{}_alpha_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.margin, args.alpha, args.ntry)
         else:
-            model_name = "{}/nfeat_{}_triplet_{}_margin_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.margin, args.ntry)
+            model_name = "{}/{}/nfeat_{}_triplet_{}_margin_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.margin, args.ntry)
     else:
-        model_name = "{}/nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.lr, args.ntry)
+        model_name = "{}/{}/nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.lr, args.ntry)
     
     for epoch in range(0, start_epoch):
         scheduler.step()
@@ -164,16 +166,17 @@ def fit(clsonly, writer, args, train_loader, val_loader, model, loss_fn, optimiz
                 'best_prec1': best_acc,
                 'optimizer' : optimizer.state_dict(),
                 'manual_seed' : args.seed
-            }, is_best, model_name, filename='model_cls.pth.tar')
+            }, is_best, model_name, filename='model_cls.pth.tar', iscls=True)
         else:
 
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': model_name,
                 'state_dict': model.state_dict(),
+                'best_emb_acc': best_acc_emb,
                 'optimizer' : optimizer.state_dict(),
                 'manual_seed' : args.seed
-            }, False, model_name, filename='model_triplet.pth.tar')            
+            }, is_best_emb, model_name, filename='model_triplet.pth.tar', iscls=False)            
     
     
         

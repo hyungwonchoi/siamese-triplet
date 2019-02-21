@@ -17,10 +17,14 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 import torchvision
-from datasets import TripletMNIST
+from datasets import TripletMNIST, TripletOmnious
+import torchvision.datasets as dset
+
 from torchvision.datasets import MNIST
 from torchvision.datasets import FashionMNIST
-import torchvision.transforms as transforms
+#import torchvision.transforms as transforms
+import transforms
+from PIL import Image
 
 import os
 import argparse
@@ -36,22 +40,25 @@ from tensorboardX import SummaryWriter
 parser = argparse.ArgumentParser(description='PyTorch Triplet network for classification/embedding, on MNIST/fashion MNIST')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--seed', default=0, type=int, help='rng seed')
-parser.add_argument('--batch_size', default=256, type=int, help='batchSize')
+parser.add_argument('--batch_size', default=32, type=int, help='batchSize')
+parser.add_argument('--nchannel', default=1, type=int, help='number of channel of data')
 parser.add_argument('--nfeat', default=2, type=int, help='number of feature')
 parser.add_argument('--dataset', default='fashionMnist', help='dataset')
+parser.add_argument('--type', default='item', help='dataset type for omnious db')
 parser.add_argument('--decay', default=1e-4, type=float, help='weight decay (default=1e-4)')
 parser.add_argument('--triplet', default=1e-1, type=float, help='triplet loss ratio (default=0.1)')
 
 parser.add_argument('--lr', default=1e-2, type=float, help='learning rate')
 parser.add_argument('--epoch', default=20, type=int, help='number of epochs')
 parser.add_argument('--ntry', default=1, type=int, help='ntry')
-parser.add_argument('--log_interval', default=50, type=int, help='log interval')
+parser.add_argument('--log_interval', default=500, type=int, help='log interval')
 parser.add_argument('--save_embedding', default=True, type=bool, help='Save embeddings')
+parser.add_argument('--dataroot', required=True, help='Path to the dataset')
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
 
-writer = SummaryWriter("./visual/{}/nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.nfeat, args.triplet, args.lr, args.ntry))
+writer = SummaryWriter("./visual/{}/{}/nfeat_{}_triplet_{}_lr_{}_ntry{}".format(args.dataset, args.type, args.nfeat, args.triplet, args.lr, args.ntry))
 
 def plot_embeddings(embeddings, targets, xlim=None, ylim=None):
     plt.figure(figsize=(10,10))
@@ -87,6 +94,7 @@ colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
               '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
               '#bcbd22', '#17becf']
 
+cuda = torch.cuda.is_available()
 
 if args.dataset =='Mnist':
     print('Using MNIST')
@@ -102,7 +110,7 @@ if args.dataset =='Mnist':
                                     transforms.ToTensor(),
                                     transforms.Normalize((mean,), (std,))
                                 ]))
-    cuda = torch.cuda.is_available()
+    
     
     # Set up data loaders
     kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
@@ -126,7 +134,6 @@ elif args.dataset =='fashionMnist':
                                     transforms.Normalize((mean,), (std,))
                                 ]))
 
-    cuda = torch.cuda.is_available()
     
     # Set up data loaders
     kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
@@ -138,11 +145,55 @@ elif args.dataset =='fashionMnist':
        
     
 
+elif args.dataset =='omni':
+    scale_resize = 256
+    resize = 224
+    normalize = transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                     std=(0.229, 0.224, 0.225))   
+
+    print("Using random crop... ")
+    transform_train = transforms.Compose([
+        transforms.ScaleLong(scale_resize,interpolation=Image.ANTIALIAS),
+        transforms.RandomCrop(resize),            
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+        ])        
+            
+    transform_test = transforms.Compose([
+            transforms.ScaleLong(scale_resize,interpolation=Image.ANTIALIAS),
+            transforms.CenterCrop(resize),
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+    
+    kwargs = {'num_workers': 4, 'pin_memory': True}
+
+    traindir = os.path.join(args.dataroot, 'train_balanced')    
+    valdir = os.path.join(args.dataroot,'test_balanced')
+
+    train_dataset = dset.ImageFolder(root=traindir,transform=transform_train)
+    val_dataset = dset.ImageFolder(root=valdir,transform=transform_test)
+        
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, **kwargs)        
+    test_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, **kwargs)  
+    
+    n_classes = len(train_dataset.classes)
+
+    train_labels = []
+    test_labels = []
+    for i in range(len(train_dataset.imgs)):
+        train_labels.append(train_dataset.imgs[i][1])
+    for i in range(len(val_dataset.imgs)):
+        test_labels.append(val_dataset.imgs[i][1])        
+        
+    
 # Set up the network and training parameters
-from networks import EmbeddingNet, ClassificationNet
+from networks import EmbeddingNet, ClassificationNet, EmbeddingNet_ResNet
 from metrics import AccumulatedAccuracyMetric
 
-embedding_net = EmbeddingNet(args.nfeat)
+embedding_net = EmbeddingNet_ResNet(args.nfeat, args.nchannel)
 model = ClassificationNet(embedding_net, n_classes=n_classes, nfeat=args.nfeat)
 if cuda:
     model.cuda()
@@ -153,8 +204,10 @@ scheduler = lr_scheduler.StepLR(optimizer, 8, gamma=0.1, last_epoch=-1)
 clsonly = True
 
 if args.save_embedding == True:
-    triplet_test_dataset = TripletMNIST(test_dataset)
-    kwargs = {'num_workers': 1, 'pin_memory': True} if cuda else {}
+    #triplet_test_dataset = TripletMNIST(test_dataset)
+    triplet_test_dataset = TripletOmnious(val_dataset, test_labels, istrain=False)
+    kwargs = {'num_workers': 4, 'pin_memory': True} if cuda else {}
+    
     triplet_test_loader = torch.utils.data.DataLoader(triplet_test_dataset, batch_size=args.batch_size, shuffle=False, **kwargs)
     
     fit(clsonly, writer, args, train_loader, test_loader, model, loss_fn, optimizer, scheduler, args.epoch, cuda, args.log_interval, metrics=[AccumulatedAccuracyMetric()], val_loader_emb=triplet_test_loader)
